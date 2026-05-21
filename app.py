@@ -4,9 +4,17 @@ from gtts import gTTS
 import base64
 import tempfile
 import os
+import io
+import speech_recognition as sr
+from streamlit_mic_recorder import mic_recorder
 
-st.set_page_config(page_title="AI English Teacher – Voice + Text", page_icon="🎙️", layout="centered")
+st.set_page_config(
+    page_title="AI English Teacher – Gesner Deslandes",
+    page_icon="🎙️",
+    layout="centered"
+)
 
+# ---------- Custom CSS for colourful UI ----------
 st.markdown(
     """
     <style>
@@ -17,9 +25,19 @@ st.markdown(
         background-color: #ff9a3c !important;
         color: white !important;
         border-radius: 50px !important;
+        font-weight: bold;
+        font-size: 1.1rem;
+        padding: 0.5rem 1.5rem;
+    }
+    .stTextInput input {
+        background-color: rgba(255,255,255,0.9);
+        color: black;
+    }
+    h1, h2, h3, p, div, span, label {
+        color: white !important;
     }
     .response-box {
-        background: rgba(0,0,0,0.6);
+        background: rgba(0,0,0,0.5);
         border-radius: 20px;
         padding: 1rem;
         margin-top: 1rem;
@@ -29,22 +47,32 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Session state
+# ---------- Session State ----------
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
-if "audio_html" not in st.session_state:
-    st.session_state.audio_html = ""
+if "api_key" not in st.session_state:
+    st.session_state.api_key = ""
 
-# Gemini API Key
-api_key = st.text_input("🔑 Google Gemini API Key (get free at https://aistudio.google.com)", type="password")
+# ---------- Title ----------
+st.title("🎙️ AI English Teacher")
+st.markdown("### Ask me anything – use **voice** or **text** – I will reply with **speech + text**.")
+
+# ---------- API Key Input ----------
+api_key = st.text_input(
+    "🔑 Enter your Google Gemini API Key (free from https://aistudio.google.com)",
+    type="password",
+    value=st.session_state.api_key if st.session_state.api_key else ""
+)
 if api_key:
+    st.session_state.api_key = api_key
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-1.5-flash')
+    st.success("✅ API Key accepted. You can now ask questions.")
 else:
-    st.warning("Please enter your Gemini API key to enable AI answers.")
+    st.warning("Please enter your Gemini API key to continue.")
     model = None
 
-# Function to speak text (gTTS works on cloud)
+# ---------- Helper: Text-to-Speech (works on cloud) ----------
 def speak_text(text):
     tts = gTTS(text=text, lang="en")
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
@@ -53,107 +81,77 @@ def speak_text(text):
             audio_bytes = audio_file.read()
         os.unlink(f.name)
     b64 = base64.b64encode(audio_bytes).decode()
-    return f'<audio autoplay="true" src="data:audio/mp3;base64,{b64}" controls></audio>'
+    return f'<audio autoplay="true" src="data:audio/mp3;base64,{b64}" controls style="width:100%; margin-top:0.5rem;"></audio>'
 
-# JavaScript for browser voice recognition (no Python library)
-voice_recognition_html = """
-<div id="voice-input" style="text-align:center; margin:1rem 0;">
-    <button id="start-recognition" style="background-color:#ff9a3c; border:none; border-radius:50px; padding:0.5rem 1rem; font-size:1.2rem; cursor:pointer;">🎤 Speak your question</button>
-    <p id="result" style="color:white; margin-top:0.5rem;"></p>
-</div>
-<script>
-    const startBtn = document.getElementById('start-recognition');
-    const resultDiv = document.getElementById('result');
-    startBtn.addEventListener('click', () => {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-            resultDiv.innerText = 'Your browser does not support speech recognition. Try Chrome, Edge, or Safari.';
-            return;
-        }
-        const recognition = new SpeechRecognition();
-        recognition.lang = 'en-US';
-        recognition.interimResults = false;
-        recognition.maxAlternatives = 1;
-        recognition.start();
-        resultDiv.innerText = 'Listening...';
-        recognition.onresult = (event) => {
-            const transcript = event.results[0][0].transcript;
-            resultDiv.innerText = 'You said: ' + transcript;
-            // Send to Streamlit using Streamlit.setComponentValue
-            const streamlitData = { transcript: transcript };
-            // This custom event will be caught by a hidden Streamlit component
-            const setValue = new CustomEvent('streamlit:setComponentValue', { detail: streamlitData });
-            window.dispatchEvent(setValue);
-        };
-        recognition.onerror = (event) => {
-            resultDiv.innerText = 'Error: ' + event.error;
-        };
-    });
-</script>
-"""
+# ---------- Voice Input (mic recorder) ----------
+if model:
+    st.markdown("---")
+    st.subheader("🎤 Speak your question")
+    audio = mic_recorder(
+        start_prompt="🔴 Start recording",
+        stop_prompt="⏹️ Stop",
+        key="mic",
+        format="wav"
+    )
+    
+    if audio:
+        st.audio(audio['bytes'], format="audio/wav")
+        recognizer = sr.Recognizer()
+        try:
+            with sr.AudioFile(io.BytesIO(audio['bytes'])) as source:
+                recorded = recognizer.record(source)
+                user_text = recognizer.recognize_google(recorded)
+            st.success(f"📝 Transcribed: \"{user_text}\"")
+        except sr.UnknownValueError:
+            st.error("Sorry, could not understand the audio. Please speak clearly.")
+            user_text = None
+        except sr.RequestError as e:
+            st.error(f"Speech recognition service error: {e}")
+            user_text = None
+        
+        if user_text:
+            # Store and get AI reply
+            st.session_state.chat_history.append(("user", user_text))
+            with st.spinner("🤖 Thinking..."):
+                response = model.generate_content(user_text)
+                ai_reply = response.text
+            st.session_state.chat_history.append(("ai", ai_reply))
+            
+            # Display answer
+            st.markdown(f"**You:** {user_text}")
+            st.markdown(f"**AI Teacher:** {ai_reply}")
+            # Play answer
+            audio_html = speak_text(ai_reply)
+            st.markdown(audio_html, unsafe_allow_html=True)
 
-# To receive the transcript, we need a tiny custom component. Simpler: use a hidden text input that gets updated via JavaScript.
-# But Streamlit doesn't easily allow JavaScript to set Python variables. Alternative: use st.text_input and let user paste or type.
-# For simplicity, I'll keep the voice button as a fun UI element, but actual voice-to-text still requires a Python library.
-# However, we CAN use `streamlit-webrtc` or `streamlit-mic-recorder` but those require extra setup.
-
-# Given the complexity, I'll provide a robust solution using `streamlit-mic-recorder` which works on cloud.
-# Install: pip install streamlit-mic-recorder
-# This component records audio in browser and sends it as bytes to Python. Then we use a free speech-to-text API.
-
-# But to keep it minimal, I'll give the final working version using `streamlit-mic-recorder`.
-
-st.markdown("## 🎙️ AI English Teacher")
-st.markdown("Ask me anything – you can **type** or **use the microphone** (click the button below).")
-
-# Install streamlit-mic-recorder in requirements.txt: streamlit-mic-recorder
-from streamlit_mic_recorder import mic_recorder
-
-audio = mic_recorder(start_prompt="🎤 Click to speak", stop_prompt="⏹️ Stop", key="recorder")
-
-if audio:
-    st.audio(audio['bytes'], format="audio/wav")
-    # Transcribe using Google Speech Recognition (still needs internet)
-    import speech_recognition as sr
-    import io
-    recognizer = sr.Recognizer()
-    try:
-        with sr.AudioFile(io.BytesIO(audio['bytes'])) as source:
-            recorded = recognizer.record(source)
-            user_text = recognizer.recognize_google(recorded)
-            st.success(f"📝 You said: {user_text}")
-    except Exception as e:
-        st.error(f"Could not transcribe: {e}")
-        user_text = None
-
-    if user_text and model:
-        st.session_state.chat_history.append(("user", user_text))
-        with st.spinner("🤖 Thinking..."):
-            response = model.generate_content(user_text)
-            ai_reply = response.text
-        st.session_state.chat_history.append(("ai", ai_reply))
-        st.markdown(f"**AI Teacher:** {ai_reply}")
-        # Speak
-        audio_html = speak_text(ai_reply)
-        st.markdown(audio_html, unsafe_allow_html=True)
-
-# Text input fallback
-user_text_input = st.text_input("Or type your question here", key="text_input")
-if st.button("Send") and user_text_input and model:
+# ---------- Text Input ----------
+st.markdown("---")
+st.subheader("⌨️ Or type your question")
+user_text_input = st.text_input("Type here...", key="text_q")
+if st.button("Send (text)") and user_text_input and model:
     st.session_state.chat_history.append(("user", user_text_input))
     with st.spinner("🤖 Thinking..."):
         response = model.generate_content(user_text_input)
         ai_reply = response.text
     st.session_state.chat_history.append(("ai", ai_reply))
+    st.markdown(f"**You:** {user_text_input}")
     st.markdown(f"**AI Teacher:** {ai_reply}")
     audio_html = speak_text(ai_reply)
     st.markdown(audio_html, unsafe_allow_html=True)
 
-# Display chat history
+# ---------- Chat History ----------
 st.markdown("---")
+st.subheader("📝 Conversation History")
 for role, msg in st.session_state.chat_history:
-    st.markdown(f"**{role.capitalize()}:** {msg}")
+    if role == "user":
+        st.markdown(f"**🧑‍🎓 You:** {msg}")
+    else:
+        st.markdown(f"**🤖 AI Teacher:** {msg}")
 
-if st.button("🗑️ Clear history"):
+if st.button("🗑️ Clear all history") and model:
     st.session_state.chat_history = []
     st.rerun()
+
+# ---------- Footer ----------
+st.markdown("---")
+st.caption("Made with ❤️ by Gesner Deslandes – AI English Teacher")
