@@ -36,7 +36,6 @@ st.markdown(
 )
 
 # ---------- RETRIEVE API KEY FROM STREAMLIT SECRETS ----------
-# Make sure you have added GEMINI_API_KEY in your secrets (local .streamlit/secrets.toml or Streamlit Cloud Secrets)
 try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
 except KeyError:
@@ -44,7 +43,18 @@ except KeyError:
     st.stop()
 
 genai.configure(api_key=API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+
+# Use a known working model (gemini-1.5-pro or gemini-pro)
+# If you still get errors, try "gemini-pro" instead.
+MODEL_NAME = "gemini-1.5-pro"   # or "gemini-pro"
+
+try:
+    model = genai.GenerativeModel(MODEL_NAME)
+    # Test the model with a simple prompt to ensure it works
+    test_response = model.generate_content("Hello")
+except Exception as e:
+    st.error(f"❌ Failed to initialize model '{MODEL_NAME}'. Error: {e}")
+    st.stop()
 
 # ---------- SYSTEM PROMPT FOR ENGLISH TEACHER ----------
 SYSTEM_PROMPT = """You are a friendly, patient AI English teacher. Your goal is to help users improve their English skills.
@@ -101,8 +111,12 @@ if audio:
         st.session_state.chat_history.append(("user", user_text))
         with st.spinner("🤖 Thinking..."):
             full_prompt = SYSTEM_PROMPT + user_text
-            response = model.generate_content(full_prompt)
-            ai_reply = response.text
+            try:
+                response = model.generate_content(full_prompt)
+                ai_reply = response.text
+            except Exception as e:
+                st.error(f"❌ API Error: {e}")
+                ai_reply = "Sorry, I'm having trouble responding right now. Please try again."
         st.session_state.chat_history.append(("ai", ai_reply))
 
         st.markdown(f"**You:** {user_text}")
@@ -118,8 +132,12 @@ if st.button("Send (text)") and user_text_input:
     st.session_state.chat_history.append(("user", user_text_input))
     with st.spinner("🤖 Thinking..."):
         full_prompt = SYSTEM_PROMPT + user_text_input
-        response = model.generate_content(full_prompt)
-        ai_reply = response.text
+        try:
+            response = model.generate_content(full_prompt)
+            ai_reply = response.text
+        except Exception as e:
+            st.error(f"❌ API Error: {e}")
+            ai_reply = "Sorry, I'm having trouble responding right now. Please try again."
     st.session_state.chat_history.append(("ai", ai_reply))
 
     st.markdown(f"**You:** {user_text_input}")
