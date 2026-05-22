@@ -1,5 +1,6 @@
 import streamlit as st
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from gtts import gTTS
 import base64
 import tempfile
@@ -42,24 +43,8 @@ except KeyError:
     st.error("❌ GEMINI_API_KEY not found in secrets. Please add it in Streamlit Cloud Secrets or local .streamlit/secrets.toml")
     st.stop()
 
-genai.configure(api_key=API_KEY)
-
-# ---------- Try multiple model names (old package compatibility) ----------
-MODEL_CANDIDATES = ["gemini-pro", "gemini-1.0-pro", "gemini-1.5-pro"]
-model = None
-for model_name in MODEL_CANDIDATES:
-    try:
-        model = genai.GenerativeModel(model_name)
-        # Quick test to ensure it works
-        test_response = model.generate_content("Hello")
-        st.success(f"✅ Using model: {model_name}")
-        break
-    except Exception as e:
-        continue
-
-if model is None:
-    st.error("❌ No valid model found. Please check your API key and try again later.")
-    st.stop()
+# Initialize the new genai client
+client = genai.Client(api_key=API_KEY)
 
 # ---------- SYSTEM PROMPT FOR ENGLISH TEACHER ----------
 SYSTEM_PROMPT = """You are a friendly, patient AI English teacher. Your goal is to help users improve their English skills.
@@ -90,6 +75,18 @@ def speak_text(text):
     b64 = base64.b64encode(audio_bytes).decode()
     return f'<audio autoplay="true" src="data:audio/mp3;base64,{b64}" controls style="width:100%; margin-top:0.5rem;"></audio>'
 
+# ---------- Helper to call Gemini ----------
+def get_ai_response(user_message):
+    try:
+        full_prompt = SYSTEM_PROMPT + user_message
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",  # or "gemini-1.5-flash" if needed
+            contents=full_prompt
+        )
+        return response.text
+    except Exception as e:
+        return f"Sorry, an error occurred: {str(e)}"
+
 # ---------- Voice Input ----------
 st.markdown("---")
 st.subheader("🎤 Speak your question")
@@ -115,13 +112,7 @@ if audio:
     if user_text:
         st.session_state.chat_history.append(("user", user_text))
         with st.spinner("🤖 Thinking..."):
-            full_prompt = SYSTEM_PROMPT + user_text
-            try:
-                response = model.generate_content(full_prompt)
-                ai_reply = response.text
-            except Exception as e:
-                st.error(f"❌ API Error: {e}")
-                ai_reply = "Sorry, I'm having trouble responding right now. Please try again."
+            ai_reply = get_ai_response(user_text)
         st.session_state.chat_history.append(("ai", ai_reply))
 
         st.markdown(f"**You:** {user_text}")
@@ -136,13 +127,7 @@ user_text_input = st.text_input("Type here...", key="text_q")
 if st.button("Send (text)") and user_text_input:
     st.session_state.chat_history.append(("user", user_text_input))
     with st.spinner("🤖 Thinking..."):
-        full_prompt = SYSTEM_PROMPT + user_text_input
-        try:
-            response = model.generate_content(full_prompt)
-            ai_reply = response.text
-        except Exception as e:
-            st.error(f"❌ API Error: {e}")
-            ai_reply = "Sorry, I'm having trouble responding right now. Please try again."
+        ai_reply = get_ai_response(user_text_input)
     st.session_state.chat_history.append(("ai", ai_reply))
 
     st.markdown(f"**You:** {user_text_input}")
