@@ -44,16 +44,21 @@ except KeyError:
 
 genai.configure(api_key=API_KEY)
 
-# Use a known working model (gemini-1.5-pro or gemini-pro)
-# If you still get errors, try "gemini-pro" instead.
-MODEL_NAME = "gemini-1.5-pro"   # or "gemini-pro"
+# ---------- Try multiple model names (old package compatibility) ----------
+MODEL_CANDIDATES = ["gemini-pro", "gemini-1.0-pro", "gemini-1.5-pro"]
+model = None
+for model_name in MODEL_CANDIDATES:
+    try:
+        model = genai.GenerativeModel(model_name)
+        # Quick test to ensure it works
+        test_response = model.generate_content("Hello")
+        st.success(f"✅ Using model: {model_name}")
+        break
+    except Exception as e:
+        continue
 
-try:
-    model = genai.GenerativeModel(MODEL_NAME)
-    # Test the model with a simple prompt to ensure it works
-    test_response = model.generate_content("Hello")
-except Exception as e:
-    st.error(f"❌ Failed to initialize model '{MODEL_NAME}'. Error: {e}")
+if model is None:
+    st.error("❌ No valid model found. Please check your API key and try again later.")
     st.stop()
 
 # ---------- SYSTEM PROMPT FOR ENGLISH TEACHER ----------
