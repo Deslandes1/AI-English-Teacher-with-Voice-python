@@ -35,17 +35,26 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ---------- HARDCODED API KEY (REPLACE WITH YOUR NEW KEY) ----------
-# 🔐 IMPORTANT: Create a NEW key from https://aistudio.google.com/app/apikey
-# Then paste it below (between the quotes). Do NOT use the leaked key.
-API_KEY = "YOUR_NEW_API_KEY_HERE"   # <---- PASTE YOUR NEW KEY HERE
-
-if API_KEY == "YOUR_NEW_API_KEY_HERE":
-    st.error("❌ Please replace 'YOUR_NEW_API_KEY_HERE' with your actual Gemini API key.")
+# ---------- RETRIEVE API KEY FROM STREAMLIT SECRETS ----------
+# Make sure you have added GEMINI_API_KEY in your secrets (local .streamlit/secrets.toml or Streamlit Cloud Secrets)
+try:
+    API_KEY = st.secrets["GEMINI_API_KEY"]
+except KeyError:
+    st.error("❌ GEMINI_API_KEY not found in secrets. Please add it in Streamlit Cloud Secrets or local .streamlit/secrets.toml")
     st.stop()
 
 genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
+
+# ---------- SYSTEM PROMPT FOR ENGLISH TEACHER ----------
+SYSTEM_PROMPT = """You are a friendly, patient AI English teacher. Your goal is to help users improve their English skills.
+- Correct grammar, spelling, and pronunciation mistakes politely.
+- Explain vocabulary and idioms in simple terms.
+- Provide example sentences when helpful.
+- Encourage the user and keep responses clear, concise (2-3 sentences unless more is needed), and positive.
+- If the user asks a non-English question, gently remind them to focus on English learning.
+
+User's message: """
 
 # ---------- Session State ----------
 if "chat_history" not in st.session_state:
@@ -91,7 +100,8 @@ if audio:
     if user_text:
         st.session_state.chat_history.append(("user", user_text))
         with st.spinner("🤖 Thinking..."):
-            response = model.generate_content(user_text)
+            full_prompt = SYSTEM_PROMPT + user_text
+            response = model.generate_content(full_prompt)
             ai_reply = response.text
         st.session_state.chat_history.append(("ai", ai_reply))
 
@@ -107,7 +117,8 @@ user_text_input = st.text_input("Type here...", key="text_q")
 if st.button("Send (text)") and user_text_input:
     st.session_state.chat_history.append(("user", user_text_input))
     with st.spinner("🤖 Thinking..."):
-        response = model.generate_content(user_text_input)
+        full_prompt = SYSTEM_PROMPT + user_text_input
+        response = model.generate_content(full_prompt)
         ai_reply = response.text
     st.session_state.chat_history.append(("ai", ai_reply))
 
